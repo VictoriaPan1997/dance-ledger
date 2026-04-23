@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(/opt/homebrew/bin/brew install *)",
+      "Bash(/opt/homebrew/bin/npm install *)",
+      "Bash(/opt/homebrew/bin/node scripts/gen-icons.mjs)",
+      "Bash(/opt/homebrew/bin/npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(/usr/bin/git init *)",
+      "Bash(/usr/bin/git add *)",
+      "Bash(/usr/bin/git commit -m ' *)",
+      "Bash(/usr/bin/git config *)"
+    ]
+  }
+}
