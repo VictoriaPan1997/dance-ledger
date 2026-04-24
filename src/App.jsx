@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3 } from 'lucide-react';
+import { supabase } from './supabase.js';
 
 // ─────────────────────────────────────────────────────────
 // Constants & helpers
@@ -54,7 +55,7 @@ const migrateClass = (c) => ({
 // ─────────────────────────────────────────────────────────
 // Main App
 
-export default function App() {
+export default function App({ user }) {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -66,27 +67,50 @@ export default function App() {
   const [modalData, setModalData] = useState(null);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
 
-  // Load from localStorage on mount (synchronous — no async needed)
   useEffect(() => {
+    // Show local cache instantly, then hydrate from Supabase in the background
     const pull = (key) => {
       try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
       catch { return null; }
     };
-    const s = pull('students');
-    const c = pull('classes');
-    const p = pull('payments');
-    if (s) setStudents(s);
-    if (c) setClasses(c.map(migrateClass));
-    if (p) setPayments(p);
+    const ls = pull('students'), lc = pull('classes'), lp = pull('payments');
+    if (ls) setStudents(ls);
+    if (lc) setClasses(lc.map(migrateClass));
+    if (lp) setPayments(lp);
     setLoaded(true);
-  }, []);
+
+    supabase
+      .from('ledger_data')
+      .select('students, classes, payments')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) return;
+        const { students: rs, classes: rc, payments: rp } = data;
+        setStudents(rs);
+        setClasses(rc.map(migrateClass));
+        setPayments(rp);
+        localStorage.setItem('students', JSON.stringify(rs));
+        localStorage.setItem('classes', JSON.stringify(rc));
+        localStorage.setItem('payments', JSON.stringify(rp));
+      });
+  }, [user.id]);
 
   const persist = (key, value) => {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
   };
-  const updateStudents = (next) => { setStudents(next); persist('students', next); };
-  const updateClasses  = (next) => { setClasses(next);  persist('classes',  next); };
-  const updatePayments = (next) => { setPayments(next); persist('payments', next); };
+
+  const syncRemote = (s, c, p) => {
+    supabase.from('ledger_data').upsert({
+      user_id: user.id,
+      students: s, classes: c, payments: p,
+      updated_at: new Date().toISOString(),
+    }).then(({ error }) => { if (error) console.error('sync error', error); });
+  };
+
+  const updateStudents = (next) => { setStudents(next); persist('students', next); syncRemote(next, classes, payments); };
+  const updateClasses  = (next) => { setClasses(next);  persist('classes',  next); syncRemote(students, next, payments); };
+  const updatePayments = (next) => { setPayments(next); persist('payments', next); syncRemote(students, classes, next); };
 
   const balanceOf = (sid) => {
     const paid = payments.filter(p => p.studentId === sid).reduce((s, p) => s + p.amount, 0);
@@ -251,7 +275,16 @@ export default function App() {
             <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '13px' }}>
               Balance rolls over automatically — no monthly math required.
             </div>
-            <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.2 · Prototype</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.3</div>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="mono"
+                style={{ background: 'none', border: 'none', fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', padding: 0, fontFamily: "'Geist Mono', monospace" }}
+              >
+                Sign out
+              </button>
+            </div>
           </footer>
         </div>
 
