@@ -32,8 +32,8 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'Dance Ledger',
-        short_name: 'Ledger',
+        name: 'Dance Vila',
+        short_name: 'Vila',
         description: 'Track dance classes and student balances',
         theme_color: '#F5F0E8',
         background_color: '#F5F0E8',

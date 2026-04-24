@@ -1,30 +1,14 @@
-import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings } from 'lucide-react';
-import { supabase } from './supabase.js';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────
 // Constants & helpers
 
-export const COLOR_PALETTE = [
-  { fg: '#A84E3C', bg: '#F5E0DA' },
-  { fg: '#7A5A6B', bg: '#EEE3E8' },
-  { fg: '#B8772E', bg: '#F5EEDF' },
-  { fg: '#4A7A6B', bg: '#DFF0EA' },
-  { fg: '#5A6B8A', bg: '#E0E8F5' },
-  { fg: '#6B5A3F', bg: '#F0E8DC' },
-  { fg: '#7A3C6B', bg: '#F0DCEC' },
-  { fg: '#3C6B5A', bg: '#DCF0E8' },
-];
-
-export const DEFAULT_CLASS_TYPES = {
-  beginner:     { label: 'Beginner Class',     price: 25, fg: '#A84E3C', bg: '#F5E0DA', defaultTime: ['19:00', '20:00'] },
-  intermediate: { label: 'Intermediate Class', price: 25, fg: '#7A5A6B', bg: '#EEE3E8', defaultTime: ['10:00', '11:30'] },
-  rehearsal:    { label: 'Rehearsal',          price: 20, fg: '#B8772E', bg: '#F5EEDF', defaultTime: ['18:00', '19:30'] },
-  custom:       { label: 'Custom Class',       price: 25, fg: '#4A7A6B', bg: '#DFF0EA', defaultTime: ['17:00', '18:30'] },
+const CLASS_TYPES = {
+  monday:    { label: 'Monday Class',    price: 25, fg: '#A84E3C', bg: '#F5E0DA', defaultTime: ['19:00', '20:00'] },
+  saturday:  { label: 'Saturday Class',  price: 25, fg: '#7A5A6B', bg: '#EEE3E8', defaultTime: ['10:00', '11:30'] },
+  rehearsal: { label: 'Rehearsal',       price: 20, fg: '#B8772E', bg: '#F5EEDF', defaultTime: ['18:00', '19:30'] },
 };
-
-// Context so every component can read classTypes without prop-drilling
-export const ClassTypesCtx = React.createContext(DEFAULT_CLASS_TYPES);
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -61,94 +45,54 @@ const fmtTimeRange = (start, end) => {
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&display=swap');`;
 
-// Migrate old type keys (monday→beginner, saturday→intermediate) and fill missing times
-const migrateClass = (c, ct = DEFAULT_CLASS_TYPES) => {
-  const typeMap = { monday: 'beginner', saturday: 'intermediate' };
-  const type = typeMap[c.type] || c.type;
-  const fallback = ct[type] || Object.values(ct)[0];
-  return {
-    ...c,
-    type,
-    startTime: c.startTime || fallback?.defaultTime?.[0] || '19:00',
-    endTime:   c.endTime   || fallback?.defaultTime?.[1] || '20:00',
-  };
-};
-
-// Safe lookup — falls back to first type if key is unknown (e.g. stale data)
-const getType = (ct, type) => ct[type] || Object.values(ct)[0];
+const migrateClass = (c) => ({
+  ...c,
+  startTime: c.startTime || CLASS_TYPES[c.type]?.defaultTime?.[0] || '19:00',
+  endTime:   c.endTime   || CLASS_TYPES[c.type]?.defaultTime?.[1] || '20:00',
+});
 
 // ─────────────────────────────────────────────────────────
 // Main App
 
-export default function App({ user }) {
-  const [students, setStudents]     = useState([]);
-  const [classes, setClasses]       = useState([]);
-  const [payments, setPayments]     = useState([]);
-  const [classTypes, setClassTypes] = useState(DEFAULT_CLASS_TYPES);
-  const [loaded, setLoaded]         = useState(false);
+export default function App() {
+  const [students, setStudents] = useState([]);
+  const [classes, setClasses] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [loaded, setLoaded] = useState(false);
 
-  const [tab, setTab]                       = useState('calendar');
-  const [currentMonth, setCurrentMonth]     = useState(thisMonth());
-  const [modal, setModal]                   = useState(null);
-  const [modalData, setModalData]           = useState(null);
+  const [tab, setTab] = useState('calendar');
+  const [currentMonth, setCurrentMonth] = useState(thisMonth());
+  const [modal, setModal] = useState(null);
+  const [modalData, setModalData] = useState(null);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
-  const [showSettings, setShowSettings]     = useState(false);
 
   useEffect(() => {
-    const pull = (key) => {
-      try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; }
-      catch { return null; }
+    const load = async () => {
+      const pull = async (key) => {
+        try { const r = await window.storage.get(key); return r?.value ? JSON.parse(r.value) : null; }
+        catch { return null; }
+      };
+      const [s, c, p] = await Promise.all([pull('students'), pull('classes'), pull('payments')]);
+      if (s) setStudents(s);
+      if (c) setClasses(c.map(migrateClass));
+      if (p) setPayments(p);
+      setLoaded(true);
     };
-    const ls = pull('students'), lc = pull('classes'), lp = pull('payments'), lct = pull('class_types');
-    const ct = lct || DEFAULT_CLASS_TYPES;
-    if (ls)  setStudents(ls);
-    if (lc)  setClasses(lc.map(cls => migrateClass(cls, ct)));
-    if (lp)  setPayments(lp);
-    if (lct) setClassTypes(lct);
-    setLoaded(true);
+    load();
+  }, []);
 
-    supabase
-      .from('ledger_data')
-      .select('students, classes, payments, class_types')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!data) return;
-        const { students: rs, classes: rc, payments: rp, class_types: rct } = data;
-        const ct = rct || DEFAULT_CLASS_TYPES;
-        setStudents(rs);
-        setClasses(rc.map(cls => migrateClass(cls, ct)));
-        setPayments(rp);
-        setClassTypes(ct);
-        localStorage.setItem('students',    JSON.stringify(rs));
-        localStorage.setItem('classes',     JSON.stringify(rc));
-        localStorage.setItem('payments',    JSON.stringify(rp));
-        localStorage.setItem('class_types', JSON.stringify(ct));
-      });
-  }, [user.id]);
-
-  const persist = (key, value) => {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  const persist = async (key, value) => {
+    try { await window.storage.set(key, JSON.stringify(value)); } catch {}
   };
-
-  const syncRemote = (s, c, p, ct) => {
-    supabase.from('ledger_data').upsert({
-      user_id: user.id,
-      students: s, classes: c, payments: p, class_types: ct,
-      updated_at: new Date().toISOString(),
-    }).then(({ error }) => { if (error) console.error('sync error', error); });
-  };
-
-  const updateStudents   = (next) => { setStudents(next);    persist('students',    next); syncRemote(next, classes, payments, classTypes); };
-  const updateClasses    = (next) => { setClasses(next);     persist('classes',     next); syncRemote(students, next, payments, classTypes); };
-  const updatePayments   = (next) => { setPayments(next);    persist('payments',    next); syncRemote(students, classes, next, classTypes); };
-  const updateClassTypes = (next) => { setClassTypes(next);  persist('class_types', next); syncRemote(students, classes, payments, next); };
+  const updateStudents = (next) => { setStudents(next); persist('students', next); };
+  const updateClasses  = (next) => { setClasses(next);  persist('classes',  next); };
+  const updatePayments = (next) => { setPayments(next); persist('payments', next); };
 
   const balanceOf = (sid) => {
     const paid = payments.filter(p => p.studentId === sid).reduce((s, p) => s + p.amount, 0);
     const used = classes
       .filter(c => c.attendeeIds.includes(sid))
-      .reduce((s, c) => s + (getType(classTypes, c.type).price || 0), 0);
+      .reduce((s, c) => s + CLASS_TYPES[c.type].price, 0);
     return paid - used;
   };
   const totalPaidBy    = (sid) => payments.filter(p => p.studentId === sid).reduce((s, p) => s + p.amount, 0);
@@ -157,11 +101,11 @@ export default function App({ user }) {
   const monthStats = useMemo(() => {
     const m = thisMonth();
     const monthClasses = classes.filter(c => monthKey(c.date) === m);
-    const earned = monthClasses.reduce((s, c) => s + (getType(classTypes, c.type).price || 0) * c.attendeeIds.length, 0);
+    const earned = monthClasses.reduce((s, c) => s + CLASS_TYPES[c.type].price * c.attendeeIds.length, 0);
     const received = payments.filter(p => monthKey(p.date) === m).reduce((s, p) => s + p.amount, 0);
     const totalBalance = students.reduce((s, st) => s + balanceOf(st.id), 0);
     return { earned, received, totalBalance, classCount: monthClasses.length, studentCount: students.length };
-  }, [classes, payments, students, classTypes]);
+  }, [classes, payments, students]);
 
   const classesByDate = useMemo(() => {
     const m = new Map();
@@ -229,7 +173,7 @@ export default function App({ user }) {
   const selectedStudent = selectedStudentId ? students.find(s => s.id === selectedStudentId) : null;
 
   return (
-    <ClassTypesCtx.Provider value={classTypes}>
+    <>
       <style>{FONTS}</style>
       <style>{`
         * { box-sizing: border-box; }
@@ -254,22 +198,13 @@ export default function App({ user }) {
           <header style={{ marginBottom: '36px' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <div className="mono" style={{ fontSize: '11px', letterSpacing: '0.14em', color: '#A84E3C', textTransform: 'uppercase', marginBottom: '6px' }}>Dance Studio · Vila</div>
+                <div className="mono" style={{ fontSize: '11px', letterSpacing: '0.14em', color: '#A84E3C', textTransform: 'uppercase', marginBottom: '6px' }}>Dance Studio · Ledger</div>
                 <h1 className="serif" style={{ margin: 0, fontSize: 'clamp(34px, 4.5vw, 48px)', fontWeight: 400, letterSpacing: '-0.02em', lineHeight: 1.02 }}>
                   The Book<span className="serif" style={{ fontStyle: 'italic', color: '#A84E3C' }}> of Classes</span>
                 </h1>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div className="mono" style={{ fontSize: '12px', color: '#78716C' }}>
-                  {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                </div>
-                <button
-                  onClick={() => setShowSettings(true)}
-                  title="Customize class types"
-                  style={{ background: 'transparent', border: '1px solid #E7E0D3', borderRadius: '2px', width: '34px', height: '34px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#78716C' }}
-                >
-                  <Settings size={15} strokeWidth={1.75} />
-                </button>
+              <div className="mono" style={{ fontSize: '12px', color: '#78716C' }}>
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </div>
             </div>
 
@@ -316,16 +251,7 @@ export default function App({ user }) {
             <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '13px' }}>
               Balance rolls over automatically — no monthly math required.
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.3</div>
-              <button
-                onClick={() => supabase.auth.signOut()}
-                className="mono"
-                style={{ background: 'none', border: 'none', fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', padding: 0, fontFamily: "'Geist Mono', monospace" }}
-              >
-                Sign out
-              </button>
-            </div>
+            <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.2 · Prototype</div>
           </footer>
         </div>
 
@@ -371,15 +297,8 @@ export default function App({ user }) {
             onRecordPayment={() => { setModalData({ studentId: selectedStudent.id }); setModal('recordPayment'); setSelectedStudentId(null); }}
           />
         )}
-        {showSettings && (
-          <ClassTypesModal
-            classTypes={classTypes}
-            onClose={() => setShowSettings(false)}
-            onSave={(next) => { updateClassTypes(next); setShowSettings(false); }}
-          />
-        )}
       </div>
-    </ClassTypesCtx.Provider>
+    </>
   );
 }
 
@@ -387,7 +306,6 @@ export default function App({ user }) {
 // Calendar
 
 function CalendarView({ currentMonth, setCurrentMonth, classesByDate, onAddClass, onOpenClass }) {
-  const ct = useContext(ClassTypesCtx);
   const [y, m] = currentMonth.split('-').map(Number);
   const firstDay = new Date(y, m - 1, 1);
   const startWeekday = firstDay.getDay();
@@ -452,7 +370,7 @@ function CalendarView({ currentMonth, setCurrentMonth, classesByDate, onAddClass
       </div>
 
       <div style={{ marginTop: '16px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-        {Object.entries(ct).map(([key, v]) => (
+        {Object.entries(CLASS_TYPES).map(([key, v]) => (
           <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ width: '10px', height: '10px', background: v.fg, borderRadius: '1px' }} />
             <span className="mono" style={{ fontSize: '11px', color: '#78716C', letterSpacing: '0.04em' }}>
@@ -472,8 +390,16 @@ function DayCell({ d, iso, inMonth, isToday, dayClasses, onAddClass, onOpenClass
   return (
     <div
       className="calendar-day"
-      style={{ background: inMonth ? '#FBF8F3' : '#F5F0E8', minHeight: '118px', padding: '8px 8px 10px', position: 'relative', cursor: 'pointer' }}
-      onClick={(e) => { if (e.target === e.currentTarget || e.target.dataset?.cellBg === '1') onAddClass(); }}
+      style={{
+        background: inMonth ? '#FBF8F3' : '#F5F0E8',
+        minHeight: '118px',
+        padding: '8px 8px 10px',
+        position: 'relative',
+        cursor: 'pointer',
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget || e.target.dataset?.cellBg === '1') onAddClass();
+      }}
       data-cell-bg="1"
     >
       <div data-cell-bg="1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
@@ -503,8 +429,7 @@ function DayCell({ d, iso, inMonth, isToday, dayClasses, onAddClass, onOpenClass
 }
 
 function ClassChip({ cls, onClick }) {
-  const ct = useContext(ClassTypesCtx);
-  const t = getType(ct, cls.type);
+  const t = CLASS_TYPES[cls.type];
   const count = cls.attendeeIds.length;
   return (
     <button
@@ -522,7 +447,7 @@ function ClassChip({ cls, onClick }) {
           {fmtTimeRange(cls.startTime, cls.endTime)}
         </span>
         <span style={{ fontSize: '11px', color: t.fg, fontWeight: 500, marginLeft: '5px' }}>
-          {t.label}
+          {t.label.replace(' Class', '')}
         </span>
       </div>
       {count > 0 && (
@@ -590,7 +515,8 @@ function StudentRow({ row, onClick, onRecordPayment }) {
       style={{
         display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto',
         gap: '16px', padding: '18px 24px', alignItems: 'center',
-        borderBottom: '1px solid #E7E0D3', cursor: 'pointer', transition: 'background 120ms',
+        borderBottom: '1px solid #E7E0D3', cursor: 'pointer',
+        transition: 'background 120ms',
       }}
       onMouseEnter={e => e.currentTarget.style.background = 'rgba(168, 78, 60, 0.03)'}
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -658,7 +584,8 @@ function PrimaryButton({ children, onClick, disabled, type = 'button' }) {
         padding: '10px 16px', background: disabled ? '#D6CCB8' : '#1C1917',
         color: disabled ? '#78716C' : '#F5F0E8',
         border: 'none', borderRadius: '2px', cursor: disabled ? 'not-allowed' : 'pointer',
-        fontSize: '13px', fontWeight: 500, fontFamily: 'inherit', transition: 'transform 150ms',
+        fontSize: '13px', fontWeight: 500, fontFamily: 'inherit',
+        transition: 'transform 150ms',
       }}
       onMouseEnter={e => !disabled && (e.currentTarget.style.transform = 'translateY(-1px)')}
       onMouseLeave={e => e.currentTarget.style.transform = 'none'}
@@ -734,90 +661,6 @@ function ModalShell({ children, onClose, title, subtitle, maxWidth = '540px' }) 
 const inputStyle = () => ({ width: '100%', padding: '10px 13px', background: 'transparent', border: '1px solid #D6CCB8', borderRadius: '2px', fontSize: '14px', color: '#1C1917', fontFamily: 'inherit' });
 const labelStyle = () => ({ display: 'block', fontSize: '10px', color: '#78716C', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: '7px', fontFamily: "'Geist Mono', monospace" });
 
-// ─────────────────────────────────────────────────────────
-// Class Types Settings Modal
-
-function ClassTypesModal({ classTypes, onClose, onSave }) {
-  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(classTypes)));
-  const entries = Object.entries(draft);
-
-  const update = (key, field, value) =>
-    setDraft(d => ({ ...d, [key]: { ...d[key], [field]: value } }));
-
-  const setColor = (key, color) =>
-    setDraft(d => ({ ...d, [key]: { ...d[key], fg: color.fg, bg: color.bg } }));
-
-  return (
-    <ModalShell onClose={onClose} title="Class types" subtitle="Rename, reprice, or recolor any type">
-      <div style={{ display: 'grid', gap: '0' }}>
-        {entries.map(([key, t], i) => (
-          <div key={key} style={{ paddingBottom: '22px', marginBottom: '22px', borderBottom: i < entries.length - 1 ? '1px solid #E7E0D3' : 'none' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: '12px', marginBottom: '14px' }}>
-              <div>
-                <label style={labelStyle()}>Name</label>
-                <input
-                  value={t.label}
-                  onChange={e => update(key, 'label', e.target.value)}
-                  style={inputStyle()}
-                />
-              </div>
-              <div>
-                <label style={labelStyle()}>Price ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={t.price}
-                  onChange={e => update(key, 'price', parseFloat(e.target.value) || 0)}
-                  style={inputStyle()}
-                />
-              </div>
-            </div>
-
-            <label style={labelStyle()}>Color</label>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {COLOR_PALETTE.map((color, ci) => {
-                const active = t.fg === color.fg;
-                return (
-                  <button
-                    key={ci}
-                    type="button"
-                    onClick={() => setColor(key, color)}
-                    style={{
-                      width: '26px', height: '26px', borderRadius: '50%',
-                      background: color.fg,
-                      border: active ? '2px solid #1C1917' : '2px solid transparent',
-                      outline: active ? `2px solid ${color.fg}` : 'none',
-                      outlineOffset: '2px',
-                      cursor: 'pointer',
-                      transform: active ? 'scale(1.2)' : 'scale(1)',
-                      transition: 'transform 100ms',
-                      flexShrink: 0,
-                    }}
-                  />
-                );
-              })}
-            </div>
-
-            {/* Live preview chip */}
-            <div style={{ marginTop: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 10px', background: t.bg, borderLeft: `2px solid ${t.fg}`, borderRadius: '1px' }}>
-              <span style={{ fontSize: '12px', color: t.fg, fontWeight: 500, fontFamily: 'inherit' }}>{t.label || 'Untitled'}</span>
-              <span className="mono" style={{ fontSize: '10px', color: t.fg, opacity: 0.7 }}>${t.price}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-        <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
-        <PrimaryButton onClick={() => onSave(draft)}>Save</PrimaryButton>
-      </div>
-    </ModalShell>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
-// Other modals
-
 function AddStudentStandaloneModal({ onClose, onSubmit }) {
   const [name, setName] = useState('');
   return (
@@ -835,34 +678,43 @@ function AddStudentStandaloneModal({ onClose, onSubmit }) {
 }
 
 function AddClassModal({ defaultDate, onClose, onSubmit }) {
-  const ct = useContext(ClassTypesCtx);
-  const keys = Object.keys(ct);
-  const firstKey = keys[0];
+  const computeDefaults = (iso) => {
+    const wd = parseIso(iso).getDay();
+    const t = wd === 1 ? 'monday' : wd === 6 ? 'saturday' : 'rehearsal';
+    return { type: t, startTime: CLASS_TYPES[t].defaultTime[0], endTime: CLASS_TYPES[t].defaultTime[1] };
+  };
 
-  const [date, setDate]           = useState(defaultDate);
-  const [type, setType]           = useState(firstKey);
-  const [startTime, setStartTime] = useState(ct[firstKey]?.defaultTime[0] || '19:00');
-  const [endTime, setEndTime]     = useState(ct[firstKey]?.defaultTime[1] || '20:00');
+  const initial = computeDefaults(defaultDate);
+  const [date, setDate] = useState(defaultDate);
+  const [type, setType] = useState(initial.type);
+  const [startTime, setStartTime] = useState(initial.startTime);
+  const [endTime, setEndTime] = useState(initial.endTime);
 
-  const changeType = (k) => {
-    setType(k);
-    setStartTime(ct[k]?.defaultTime[0] || '19:00');
-    setEndTime(ct[k]?.defaultTime[1] || '20:00');
+  const changeType = (t) => {
+    setType(t);
+    setStartTime(CLASS_TYPES[t].defaultTime[0]);
+    setEndTime(CLASS_TYPES[t].defaultTime[1]);
+  };
+  const changeDate = (d) => {
+    setDate(d);
+    const nd = computeDefaults(d);
+    setType(nd.type);
+    setStartTime(nd.startTime);
+    setEndTime(nd.endTime);
   };
 
   return (
     <ModalShell onClose={onClose} title="Add a class" subtitle="Schedule a session on the calendar">
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(date, type, startTime, endTime); }}>
         <label style={labelStyle()}>Date</label>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...inputStyle(), marginBottom: '18px' }} />
+        <input type="date" value={date} onChange={e => changeDate(e.target.value)} style={{ ...inputStyle(), marginBottom: '18px' }} />
 
         <label style={labelStyle()}>Class type</label>
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(keys.length, 3)}, 1fr)`, gap: '6px', marginBottom: '18px' }}>
-          {keys.map((k) => {
-            const v = ct[k];
-            const active = type === k;
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginBottom: '18px' }}>
+          {Object.entries(CLASS_TYPES).map(([key, v]) => {
+            const active = type === key;
             return (
-              <button key={k} type="button" onClick={() => changeType(k)}
+              <button key={key} type="button" onClick={() => changeType(key)}
                 style={{
                   padding: '12px 8px', borderRadius: '2px', cursor: 'pointer', fontFamily: 'inherit',
                   border: `1px solid ${active ? v.fg : '#D6CCB8'}`,
@@ -870,7 +722,7 @@ function AddClassModal({ defaultDate, onClose, onSubmit }) {
                   color: active ? v.fg : '#1C1917',
                   textAlign: 'center',
                 }}>
-                <div style={{ fontSize: '13px', fontWeight: 500 }}>{v.label}</div>
+                <div style={{ fontSize: '13px', fontWeight: 500 }}>{v.label.replace(' Class', '')}</div>
                 <div className="mono" style={{ fontSize: '10px', marginTop: '3px', opacity: 0.8 }}>${v.price}</div>
               </button>
             );
@@ -888,8 +740,8 @@ function AddClassModal({ defaultDate, onClose, onSubmit }) {
           </div>
         </div>
 
-        <div style={{ padding: '12px 14px', background: ct[type]?.bg, borderRadius: '2px', borderLeft: `2px solid ${ct[type]?.fg}` }}>
-          <div className="serif" style={{ fontStyle: 'italic', fontSize: '13px', color: ct[type]?.fg }}>
+        <div style={{ padding: '12px 14px', background: CLASS_TYPES[type].bg, borderRadius: '2px', borderLeft: `2px solid ${CLASS_TYPES[type].fg}` }}>
+          <div className="serif" style={{ fontStyle: 'italic', fontSize: '13px', color: CLASS_TYPES[type].fg }}>
             {fmtDateLong(date)} · {fmtTimeRange(startTime, endTime)}
           </div>
         </div>
@@ -904,8 +756,7 @@ function AddClassModal({ defaultDate, onClose, onSubmit }) {
 }
 
 function ClassDetailModal({ cls, students, onClose, onToggleAttendee, onAddStudent, onEditClass, onDelete }) {
-  const ct = useContext(ClassTypesCtx);
-  const t = getType(ct, cls.type);
+  const t = CLASS_TYPES[cls.type];
   const [showAddInput, setShowAddInput] = useState(false);
   const [newName, setNewName] = useState('');
   const [editing, setEditing] = useState(false);
@@ -918,7 +769,10 @@ function ClassDetailModal({ cls, students, onClose, onToggleAttendee, onAddStude
   const revenue = present * t.price;
 
   const handleAddStudent = () => {
-    if (newName.trim()) { onAddStudent(newName.trim()); setNewName(''); }
+    if (newName.trim()) {
+      onAddStudent(newName.trim());
+      setNewName('');
+    }
   };
 
   useEffect(() => {
@@ -1081,7 +935,6 @@ function RecordPaymentModal({ students, defaultStudentId, onClose, onSubmit }) {
 }
 
 function StudentDetailModal({ student, balance, classes, payments, onClose, onDeleteStudent, onDeleteClass, onDeletePayment, onRecordPayment }) {
-  const ct = useContext(ClassTypesCtx);
   const history = useMemo(() => {
     const items = [
       ...classes.map(c => ({ ...c, kind: 'class', sortKey: c.date + c.createdAt })),
@@ -1090,9 +943,9 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
     return items.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
   }, [classes, payments]);
 
-  const totalPaid  = payments.reduce((s, p) => s + p.amount, 0);
-  const totalSpent = classes.reduce((s, c) => s + (getType(ct, c.type).price || 0), 0);
-  const negative   = balance < 0;
+  const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+  const totalSpent = classes.reduce((s, c) => s + CLASS_TYPES[c.type].price, 0);
+  const negative = balance < 0;
 
   return (
     <ModalShell onClose={onClose} title={student.name} subtitle={`On roster since ${fmtDateLong(student.createdAt.slice(0, 10))}`}>
@@ -1114,36 +967,33 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
         <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '14px', padding: '16px 0' }}>No activity yet.</div>
       ) : (
         <div style={{ maxHeight: '300px', overflow: 'auto' }}>
-          {history.map(item => {
-            const itemType = item.kind === 'class' ? getType(ct, item.type) : null;
-            return (
-              <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #E7E0D3' }}>
-                <div className="mono" style={{ fontSize: '11px', color: '#78716C', width: '60px' }}>{fmtDate(item.date).toUpperCase()}</div>
-                <div style={{ fontSize: '13px' }}>
-                  {item.kind === 'class' ? (
-                    <>
-                      <span style={{ color: itemType.fg }}>{itemType.label}</span>
-                      <span className="mono" style={{ color: '#78716C', fontSize: '11px', marginLeft: '6px' }}>{fmtTimeRange(item.startTime, item.endTime)}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ color: '#6B7B3F' }}>Payment</span>
-                      {item.note && <span className="serif" style={{ fontStyle: 'italic', color: '#78716C' }}> · {item.note}</span>}
-                    </>
-                  )}
-                </div>
-                <div className="mono" style={{ fontSize: '13px', color: item.kind === 'class' ? '#A84E3C' : '#6B7B3F' }}>
-                  {item.kind === 'class' ? `−$${itemType.price}` : `+$${item.amount}`}
-                </div>
-                <button
-                  onClick={() => item.kind === 'class' ? onDeleteClass(item.id) : onDeletePayment(item.id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A8A29E', padding: '4px', display: 'flex' }}
-                  aria-label="Delete">
-                  <Trash2 size={12} strokeWidth={1.5} />
-                </button>
+          {history.map(item => (
+            <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #E7E0D3' }}>
+              <div className="mono" style={{ fontSize: '11px', color: '#78716C', width: '60px' }}>{fmtDate(item.date).toUpperCase()}</div>
+              <div style={{ fontSize: '13px' }}>
+                {item.kind === 'class' ? (
+                  <>
+                    <span style={{ color: CLASS_TYPES[item.type].fg }}>{CLASS_TYPES[item.type].label}</span>
+                    <span className="mono" style={{ color: '#78716C', fontSize: '11px', marginLeft: '6px' }}>{fmtTimeRange(item.startTime, item.endTime)}</span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: '#6B7B3F' }}>Payment</span>
+                    {item.note && <span className="serif" style={{ fontStyle: 'italic', color: '#78716C' }}> · {item.note}</span>}
+                  </>
+                )}
               </div>
-            );
-          })}
+              <div className="mono" style={{ fontSize: '13px', color: item.kind === 'class' ? '#A84E3C' : '#6B7B3F' }}>
+                {item.kind === 'class' ? `−$${CLASS_TYPES[item.type].price}` : `+$${item.amount}`}
+              </div>
+              <button
+                onClick={() => item.kind === 'class' ? onDeleteClass(item.id) : onDeletePayment(item.id)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#A8A29E', padding: '4px', display: 'flex' }}
+                aria-label="Delete">
+                <Trash2 size={12} strokeWidth={1.5} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1157,3 +1007,4 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
     </ModalShell>
   );
 }
+

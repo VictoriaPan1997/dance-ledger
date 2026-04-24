@@ -31,7 +31,7 @@ export default function AuthGate({ children }) {
         <style>{`* { box-sizing: border-box; } body, html { margin: 0; padding: 0; } input:focus-visible { outline: 2px solid #A84E3C; outline-offset: 2px; }`}</style>
         <div style={{ maxWidth: '380px', width: '100%' }}>
           <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: '11px', letterSpacing: '0.14em', color: '#A84E3C', textTransform: 'uppercase', marginBottom: '12px' }}>
-            Dance Studio · Ledger
+            Dance Studio · Vila
           </div>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontSize: '36px', fontWeight: 400, letterSpacing: '-0.02em', margin: '0 0 8px', color: '#1C1917' }}>
             Sign in

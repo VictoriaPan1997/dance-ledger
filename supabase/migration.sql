@@ -1,11 +1,12 @@
 -- Run this once in the Supabase SQL Editor (supabase.com → your project → SQL Editor)
 
 create table if not exists ledger_data (
-  user_id   uuid primary key references auth.users(id) on delete cascade,
-  students  jsonb not null default '[]'::jsonb,
-  classes   jsonb not null default '[]'::jsonb,
-  payments  jsonb not null default '[]'::jsonb,
-  updated_at timestamptz not null default now()
+  user_id     uuid primary key references auth.users(id) on delete cascade,
+  students    jsonb not null default '[]'::jsonb,
+  classes     jsonb not null default '[]'::jsonb,
+  payments    jsonb not null default '[]'::jsonb,
+  class_types jsonb,
+  updated_at  timestamptz not null default now()
 );
 
 alter table ledger_data enable row level security;

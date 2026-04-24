@@ -11,7 +11,11 @@
       "Bash(/usr/bin/git init *)",
       "Bash(/usr/bin/git add *)",
       "Bash(/usr/bin/git commit -m ' *)",
-      "Bash(/usr/bin/git config *)"
+      "Bash(/usr/bin/git config *)",
+      "Bash(gh repo *)",
+      "Bash(/opt/homebrew/bin/gh auth *)",
+      "Bash(/opt/homebrew/bin/gh repo *)",
+      "Bash(/usr/bin/git push *)"
     ]
   }
 }
