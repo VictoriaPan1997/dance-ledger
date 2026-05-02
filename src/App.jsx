@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings, UserCheck } from 'lucide-react';
 import { supabase } from './supabase.js';
 
 // ─────────────────────────────────────────────────────────
@@ -288,6 +288,9 @@ export default function App({ user }) {
             <TabButton active={tab === 'students'} onClick={() => setTab('students')}>
               <Users size={14} strokeWidth={1.75} /> Students
             </TabButton>
+            <TabButton active={tab === 'checkin'} onClick={() => setTab('checkin')}>
+              <UserCheck size={14} strokeWidth={1.75} /> Check-in
+            </TabButton>
           </div>
 
           {tab === 'calendar' && (
@@ -297,6 +300,16 @@ export default function App({ user }) {
               classesByDate={classesByDate}
               onAddClass={(date) => { setModalData({ date }); setModal('addClass'); }}
               onOpenClass={(id) => setModal({ type: 'classDetail', id })}
+            />
+          )}
+
+          {tab === 'checkin' && (
+            <CheckInView
+              classes={classes}
+              students={students}
+              onToggleAttendee={toggleAttendee}
+              onOpenClass={(id) => setModal({ type: 'classDetail', id })}
+              onAddClass={() => { setModalData({ date: todayIso() }); setModal('addClass'); }}
             />
           )}
 
@@ -1155,5 +1168,154 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
         <SecondaryButton onClick={onClose}>Close</SecondaryButton>
       </div>
     </ModalShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// Check-in
+
+function CheckInView({ classes, students, onToggleAttendee, onOpenClass, onAddClass }) {
+  const today = todayIso();
+  const todayClasses = classes
+    .filter(c => c.date === today)
+    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+
+  return (
+    <section>
+      <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div className="mono" style={{ fontSize: '11px', letterSpacing: '0.12em', color: '#A84E3C', textTransform: 'uppercase', marginBottom: '6px' }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </div>
+          <h2 className="serif" style={{ margin: 0, fontSize: '26px', fontWeight: 400, letterSpacing: '-0.01em' }}>
+            Check-in <span className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '16px' }}>· tap your name when you arrive</span>
+          </h2>
+        </div>
+        <PrimaryButton onClick={onAddClass}>
+          <Plus size={15} strokeWidth={1.75} /> Add today's class
+        </PrimaryButton>
+      </div>
+
+      {todayClasses.length === 0 ? (
+        <EmptyState
+          icon={<UserCheck size={22} strokeWidth={1.5} />}
+          title="No classes scheduled today"
+          body="Add a class to start taking attendance."
+          cta="Add class"
+          onClick={onAddClass}
+        />
+      ) : (
+        todayClasses.map(cls => (
+          <CheckInClassCard
+            key={cls.id}
+            cls={cls}
+            students={students}
+            onToggleAttendee={(sid) => onToggleAttendee(cls.id, sid)}
+            onOpenInTeacherView={() => onOpenClass(cls.id)}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+function CheckInClassCard({ cls, students, onToggleAttendee, onOpenInTeacherView }) {
+  const ct = useContext(ClassTypesCtx);
+  const t = getType(ct, cls.type);
+  const sorted = [...students].sort((a, b) => a.name.localeCompare(b.name));
+  const checkedIn = cls.attendeeIds.length;
+
+  return (
+    <div style={{ marginBottom: '28px', background: '#FBF8F3', border: '1px solid #E7E0D3', borderRadius: '3px', overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', background: t.bg, borderBottom: `2px solid ${t.fg}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div className="serif" style={{ fontSize: '20px', fontWeight: 500, color: t.fg, letterSpacing: '-0.01em' }}>{t.label}</div>
+          <div className="mono" style={{ fontSize: '12px', color: t.fg, opacity: 0.75, marginTop: '2px' }}>
+            {fmtTimeRange(cls.startTime, cls.endTime)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="mono" style={{ fontSize: '13px', color: t.fg, opacity: 0.9 }}>
+            {checkedIn} / {students.length} in
+          </div>
+          <button
+            onClick={onOpenInTeacherView}
+            style={{
+              background: 'transparent', border: `1px solid ${t.fg}`, borderRadius: '2px',
+              padding: '6px 12px', cursor: 'pointer', color: t.fg,
+              fontSize: '11px', fontFamily: "'Geist Mono', monospace", letterSpacing: '0.06em',
+              display: 'flex', alignItems: 'center', gap: '5px', textTransform: 'uppercase',
+            }}
+          >
+            <Users size={12} strokeWidth={1.75} /> Teacher view
+          </button>
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{ padding: '32px', textAlign: 'center' }}>
+          <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '14px' }}>No students on roster — add them in the Students tab.</div>
+        </div>
+      ) : (
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
+          {sorted.map(s => (
+            <CheckInStudentButton
+              key={s.id}
+              student={s}
+              checked={cls.attendeeIds.includes(s.id)}
+              onToggle={() => onToggleAttendee(s.id)}
+              color={t.fg}
+              colorBg={t.bg}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckInStudentButton({ student, checked, onToggle, color, colorBg }) {
+  const [flash, setFlash] = useState(false);
+
+  const handleTap = () => {
+    if (!checked) { setFlash(true); setTimeout(() => setFlash(false), 900); }
+    onToggle();
+  };
+
+  return (
+    <button
+      onClick={handleTap}
+      style={{
+        minHeight: '80px', padding: '14px 12px', borderRadius: '2px', cursor: 'pointer',
+        fontFamily: 'inherit', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: '5px',
+        transition: 'all 150ms',
+        border: checked ? `2px solid ${color}` : '2px solid #E7E0D3',
+        background: checked ? colorBg : '#FBF8F3',
+        position: 'relative',
+      }}
+    >
+      {checked && (
+        <div style={{ position: 'absolute', top: '7px', right: '7px' }}>
+          <Check size={11} strokeWidth={2.5} style={{ color }} />
+        </div>
+      )}
+      <span className="serif" style={{
+        fontSize: '15px', fontWeight: 500, color: checked ? color : '#1C1917',
+        textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em',
+      }}>
+        {student.name}
+      </span>
+      {flash && (
+        <span className="mono" style={{ fontSize: '9px', color, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85 }}>
+          checked in!
+        </span>
+      )}
+      {!checked && !flash && (
+        <span className="mono" style={{ fontSize: '9px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          tap to check in
+        </span>
+      )}
+    </button>
   );
 }
