@@ -173,13 +173,16 @@ export default function App({ user }) {
     return m;
   }, [classes]);
 
-  const addStudent = (name) => {
+  const addStudent = (name, email = '') => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     const id = uid();
-    const next = [...students, { id, name: trimmed, createdAt: new Date().toISOString() }];
+    const next = [...students, { id, name: trimmed, email: email.trim().toLowerCase() || '', createdAt: new Date().toISOString() }];
     updateStudents(next);
     return id;
+  };
+  const updateStudentEmail = (id, email) => {
+    updateStudents(students.map(s => s.id === id ? { ...s, email } : s));
   };
   const deleteStudent = (id) => {
     if (!confirm('Remove this student from the roster? Their attendance and payment history stays in the log.')) return;
@@ -355,7 +358,7 @@ export default function App({ user }) {
             students={students}
             onClose={() => setModal(null)}
             onToggleAttendee={(sid) => toggleAttendee(currentClass.id, sid)}
-            onAddStudent={(name) => { const sid = addStudent(name); if (sid) toggleAttendee(currentClass.id, sid); }}
+            onAddStudent={(name) => { const sid = addStudent(name, ''); if (sid) toggleAttendee(currentClass.id, sid); }}
             onEditClass={(patch) => updateClass(currentClass.id, patch)}
             onDelete={() => deleteClass(currentClass.id)}
           />
@@ -369,7 +372,7 @@ export default function App({ user }) {
           />
         )}
         {modal === 'addStudentStandalone' && (
-          <AddStudentStandaloneModal onClose={() => setModal(null)} onSubmit={(n) => { addStudent(n); setModal(null); }} />
+          <AddStudentStandaloneModal onClose={() => setModal(null)} onSubmit={(n, e) => { addStudent(n, e); setModal(null); }} />
         )}
         {selectedStudent && (
           <StudentDetailModal
@@ -382,6 +385,7 @@ export default function App({ user }) {
             onDeleteClass={deleteClass}
             onDeletePayment={deletePayment}
             onRecordPayment={() => { setModalData({ studentId: selectedStudent.id }); setModal('recordPayment'); setSelectedStudentId(null); }}
+            onUpdateEmail={(email) => updateStudentEmail(selectedStudent.id, email)}
           />
         )}
         {showSettings && (
@@ -609,7 +613,12 @@ function StudentRow({ row, onClick, onRecordPayment }) {
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       <div>
-        <div className="serif" style={{ fontSize: '17px', fontWeight: 500, letterSpacing: '-0.01em' }}>{row.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="serif" style={{ fontSize: '17px', fontWeight: 500, letterSpacing: '-0.01em' }}>{row.name}</div>
+          {row.email && (
+            <span className="mono" style={{ fontSize: '9px', letterSpacing: '0.08em', color: '#6B7B3F', textTransform: 'uppercase', background: '#EEF3E0', padding: '2px 6px', borderRadius: '2px' }}>linked</span>
+          )}
+        </div>
         {(negative || low) && (
           <span className="mono" style={{ fontSize: '9px', letterSpacing: '0.1em', marginTop: '4px', display: 'inline-block', color: negative ? '#A84E3C' : '#B8772E', textTransform: 'uppercase' }}>
             {negative ? 'overdrawn' : 'running low'}
@@ -833,11 +842,14 @@ function ClassTypesModal({ classTypes, onClose, onSave }) {
 
 function AddStudentStandaloneModal({ onClose, onSubmit }) {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   return (
     <ModalShell onClose={onClose} title="New student" subtitle="Add to the roster">
-      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name, email); }}>
         <label style={labelStyle()}>Name</label>
-        <input autoFocus value={name} onChange={e => setName(e.target.value)} style={inputStyle()} placeholder="e.g. Mia Chen" />
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} style={{ ...inputStyle(), marginBottom: '16px' }} placeholder="e.g. Mia Chen" />
+        <label style={labelStyle()}>Email <span style={{ textTransform: 'none', letterSpacing: 0, color: '#A8A29E' }}>(optional — lets student log in to see their own record)</span></label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle()} placeholder="mia@example.com" />
         <div style={{ display: 'flex', gap: '10px', marginTop: '22px', justifyContent: 'flex-end' }}>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <PrimaryButton type="submit" disabled={!name.trim()}>Add</PrimaryButton>
@@ -1093,8 +1105,11 @@ function RecordPaymentModal({ students, defaultStudentId, onClose, onSubmit }) {
   );
 }
 
-function StudentDetailModal({ student, balance, classes, payments, onClose, onDeleteStudent, onDeleteClass, onDeletePayment, onRecordPayment }) {
+function StudentDetailModal({ student, balance, classes, payments, onClose, onDeleteStudent, onDeleteClass, onDeletePayment, onRecordPayment, onUpdateEmail }) {
   const ct = useContext(ClassTypesCtx);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(student.email || '');
+
   const history = useMemo(() => {
     const items = [
       ...classes.map(c => ({ ...c, kind: 'class', sortKey: c.date + c.createdAt })),
@@ -1120,6 +1135,44 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
           </div>
         </div>
         <SecondaryButton onClick={onRecordPayment}><Receipt size={14} strokeWidth={1.75} /> Record payment</SecondaryButton>
+      </div>
+
+      <div style={{ marginBottom: '20px', padding: '12px 14px', background: '#F5F0E8', borderRadius: '2px', border: '1px solid #E7E0D3' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: editingEmail ? '8px' : 0 }}>
+          <div className="mono" style={{ fontSize: '10px', letterSpacing: '0.12em', color: '#78716C', textTransform: 'uppercase' }}>Student login email</div>
+          {!editingEmail && (
+            <button type="button" onClick={() => { setEditingEmail(true); setEmailDraft(student.email || ''); }}
+              className="mono" style={{ background: 'none', border: 'none', color: '#A84E3C', fontSize: '11px', cursor: 'pointer', padding: 0, fontFamily: "'Geist Mono', monospace", letterSpacing: '0.06em' }}>
+              {student.email ? 'edit' : '+ add email'}
+            </button>
+          )}
+        </div>
+        {!editingEmail ? (
+          student.email
+            ? <div className="mono" style={{ fontSize: '13px', color: '#1C1917', marginTop: '4px' }}>{student.email} <span style={{ color: '#6B7B3F', fontSize: '11px' }}>· linked</span></div>
+            : <div className="serif" style={{ fontStyle: 'italic', fontSize: '13px', color: '#A8A29E', marginTop: '4px' }}>No email — student can't log in yet</div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              autoFocus
+              type="email"
+              value={emailDraft}
+              onChange={e => setEmailDraft(e.target.value)}
+              placeholder="student@example.com"
+              style={{ ...inputStyle(), flex: 1, padding: '7px 10px' }}
+              onKeyDown={e => { if (e.key === 'Escape') setEditingEmail(false); }}
+            />
+            <button type="button"
+              onClick={() => { onUpdateEmail(emailDraft.trim().toLowerCase()); setEditingEmail(false); }}
+              className="mono" style={{ background: '#1C1917', color: '#F5F0E8', border: 'none', padding: '8px 12px', borderRadius: '2px', fontSize: '11px', cursor: 'pointer', fontFamily: "'Geist Mono', monospace" }}>
+              save
+            </button>
+            <button type="button" onClick={() => setEditingEmail(false)}
+              style={{ background: 'transparent', border: '1px solid #D6CCB8', padding: '7px 8px', borderRadius: '2px', cursor: 'pointer', color: '#78716C', display: 'flex' }}>
+              <X size={13} strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={labelStyle()}>History</div>

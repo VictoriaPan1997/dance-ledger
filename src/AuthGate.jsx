@@ -3,19 +3,64 @@ import { supabase } from './supabase.js';
 
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Geist+Mono:wght@400..600&display=swap');`;
 
+// Detects whether the logged-in user is a teacher (has their own ledger_data row),
+// a student (their email appears in a teacher's students list via RLS), or a new
+// teacher (no data at all — default to teacher view so they can set up their studio).
+async function detectRole(user) {
+  // Single query — RLS returns only rows the user is allowed to read:
+  //   • teacher: their own row (user_id = auth.uid())
+  //   • student: teacher's row (email in students JSON via "students can read their studio" policy)
+  //   • new teacher: no rows
+  const { data, error } = await supabase
+    .from('ledger_data')
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error('role detection error', error);
+    return { role: 'teacher', studioData: null }; // safe fallback
+  }
+
+  if (!data) return { role: 'teacher', studioData: null }; // new user → teacher
+
+  if (data.user_id === user.id) return { role: 'teacher', studioData: null };
+
+  // Student — find their record by email
+  const student = (data.students || []).find(
+    s => s.email && s.email.toLowerCase() === user.email.toLowerCase()
+  );
+  return { role: 'student', studioData: { teacherRow: data, student: student || null } };
+}
+
 export default function AuthGate({ children }) {
-  const [session, setSession] = useState(undefined); // undefined = still checking
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [session, setSession]     = useState(undefined); // undefined = still checking
+  const [role, setRole]           = useState(null);       // null = role detection in progress
+  const [studioData, setStudioData] = useState(null);
+  const [email, setEmail]         = useState('');
+  const [sent, setSent]           = useState(false);
+  const [loading, setLoading]     = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      setSession(session);
+      setRole(null); // re-detect on auth change
+    });
     return () => subscription.unsubscribe();
   }, []);
 
-  if (session === undefined) {
+  useEffect(() => {
+    if (!session) { setRole(null); return; }
+    detectRole(session.user).then(({ role, studioData }) => {
+      setRole(role);
+      setStudioData(studioData);
+    });
+  }, [session?.user?.id]);
+
+  // ── Loading states ──────────────────────────────────────────────────────────
+
+  if (session === undefined || (session && role === null)) {
     return (
       <div style={{ minHeight: '100vh', background: '#F5F0E8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <style>{FONTS}</style>
@@ -23,6 +68,8 @@ export default function AuthGate({ children }) {
       </div>
     );
   }
+
+  // ── Sign-in screen ──────────────────────────────────────────────────────────
 
   if (!session) {
     return (
@@ -37,7 +84,7 @@ export default function AuthGate({ children }) {
             Sign in
           </h1>
           <p style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontSize: '14px', color: '#78716C', margin: '0 0 32px' }}>
-            We'll send a magic link to your email — tap it and you're in.
+            Teacher or student — enter your email and we'll send a magic link.
           </p>
 
           {!sent ? (
@@ -90,5 +137,5 @@ export default function AuthGate({ children }) {
     );
   }
 
-  return children(session.user);
+  return children(session.user, role, studioData);
 }
