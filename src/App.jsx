@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
-import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings, UserCheck } from 'lucide-react';
 import { supabase } from './supabase.js';
 
 // ─────────────────────────────────────────────────────────
@@ -173,13 +173,16 @@ export default function App({ user }) {
     return m;
   }, [classes]);
 
-  const addStudent = (name) => {
+  const addStudent = (name, email = '') => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     const id = uid();
-    const next = [...students, { id, name: trimmed, createdAt: new Date().toISOString() }];
+    const next = [...students, { id, name: trimmed, email: email.trim().toLowerCase() || '', createdAt: new Date().toISOString() }];
     updateStudents(next);
     return id;
+  };
+  const updateStudentEmail = (id, email) => {
+    updateStudents(students.map(s => s.id === id ? { ...s, email } : s));
   };
   const deleteStudent = (id) => {
     if (!confirm('Remove this student from the roster? Their attendance and payment history stays in the log.')) return;
@@ -288,6 +291,9 @@ export default function App({ user }) {
             <TabButton active={tab === 'students'} onClick={() => setTab('students')}>
               <Users size={14} strokeWidth={1.75} /> Students
             </TabButton>
+            <TabButton active={tab === 'checkin'} onClick={() => setTab('checkin')}>
+              <UserCheck size={14} strokeWidth={1.75} /> Check-in
+            </TabButton>
           </div>
 
           {tab === 'calendar' && (
@@ -297,6 +303,16 @@ export default function App({ user }) {
               classesByDate={classesByDate}
               onAddClass={(date) => { setModalData({ date }); setModal('addClass'); }}
               onOpenClass={(id) => setModal({ type: 'classDetail', id })}
+            />
+          )}
+
+          {tab === 'checkin' && (
+            <CheckInView
+              classes={classes}
+              students={students}
+              onToggleAttendee={toggleAttendee}
+              onOpenClass={(id) => setModal({ type: 'classDetail', id })}
+              onAddClass={() => { setModalData({ date: todayIso() }); setModal('addClass'); }}
             />
           )}
 
@@ -342,7 +358,7 @@ export default function App({ user }) {
             students={students}
             onClose={() => setModal(null)}
             onToggleAttendee={(sid) => toggleAttendee(currentClass.id, sid)}
-            onAddStudent={(name) => { const sid = addStudent(name); if (sid) toggleAttendee(currentClass.id, sid); }}
+            onAddStudent={(name) => { const sid = addStudent(name, ''); if (sid) toggleAttendee(currentClass.id, sid); }}
             onEditClass={(patch) => updateClass(currentClass.id, patch)}
             onDelete={() => deleteClass(currentClass.id)}
           />
@@ -356,7 +372,7 @@ export default function App({ user }) {
           />
         )}
         {modal === 'addStudentStandalone' && (
-          <AddStudentStandaloneModal onClose={() => setModal(null)} onSubmit={(n) => { addStudent(n); setModal(null); }} />
+          <AddStudentStandaloneModal onClose={() => setModal(null)} onSubmit={(n, e) => { addStudent(n, e); setModal(null); }} />
         )}
         {selectedStudent && (
           <StudentDetailModal
@@ -369,6 +385,7 @@ export default function App({ user }) {
             onDeleteClass={deleteClass}
             onDeletePayment={deletePayment}
             onRecordPayment={() => { setModalData({ studentId: selectedStudent.id }); setModal('recordPayment'); setSelectedStudentId(null); }}
+            onUpdateEmail={(email) => updateStudentEmail(selectedStudent.id, email)}
           />
         )}
         {showSettings && (
@@ -596,7 +613,12 @@ function StudentRow({ row, onClick, onRecordPayment }) {
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       <div>
-        <div className="serif" style={{ fontSize: '17px', fontWeight: 500, letterSpacing: '-0.01em' }}>{row.name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="serif" style={{ fontSize: '17px', fontWeight: 500, letterSpacing: '-0.01em' }}>{row.name}</div>
+          {row.email && (
+            <span className="mono" style={{ fontSize: '9px', letterSpacing: '0.08em', color: '#6B7B3F', textTransform: 'uppercase', background: '#EEF3E0', padding: '2px 6px', borderRadius: '2px' }}>linked</span>
+          )}
+        </div>
         {(negative || low) && (
           <span className="mono" style={{ fontSize: '9px', letterSpacing: '0.1em', marginTop: '4px', display: 'inline-block', color: negative ? '#A84E3C' : '#B8772E', textTransform: 'uppercase' }}>
             {negative ? 'overdrawn' : 'running low'}
@@ -820,11 +842,14 @@ function ClassTypesModal({ classTypes, onClose, onSave }) {
 
 function AddStudentStandaloneModal({ onClose, onSubmit }) {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   return (
     <ModalShell onClose={onClose} title="New student" subtitle="Add to the roster">
-      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name); }}>
+      <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name, email); }}>
         <label style={labelStyle()}>Name</label>
-        <input autoFocus value={name} onChange={e => setName(e.target.value)} style={inputStyle()} placeholder="e.g. Mia Chen" />
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} style={{ ...inputStyle(), marginBottom: '16px' }} placeholder="e.g. Mia Chen" />
+        <label style={labelStyle()}>Email <span style={{ textTransform: 'none', letterSpacing: 0, color: '#A8A29E' }}>(optional — lets student log in to see their own record)</span></label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} style={inputStyle()} placeholder="mia@example.com" />
         <div style={{ display: 'flex', gap: '10px', marginTop: '22px', justifyContent: 'flex-end' }}>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
           <PrimaryButton type="submit" disabled={!name.trim()}>Add</PrimaryButton>
@@ -1080,8 +1105,11 @@ function RecordPaymentModal({ students, defaultStudentId, onClose, onSubmit }) {
   );
 }
 
-function StudentDetailModal({ student, balance, classes, payments, onClose, onDeleteStudent, onDeleteClass, onDeletePayment, onRecordPayment }) {
+function StudentDetailModal({ student, balance, classes, payments, onClose, onDeleteStudent, onDeleteClass, onDeletePayment, onRecordPayment, onUpdateEmail }) {
   const ct = useContext(ClassTypesCtx);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(student.email || '');
+
   const history = useMemo(() => {
     const items = [
       ...classes.map(c => ({ ...c, kind: 'class', sortKey: c.date + c.createdAt })),
@@ -1107,6 +1135,44 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
           </div>
         </div>
         <SecondaryButton onClick={onRecordPayment}><Receipt size={14} strokeWidth={1.75} /> Record payment</SecondaryButton>
+      </div>
+
+      <div style={{ marginBottom: '20px', padding: '12px 14px', background: '#F5F0E8', borderRadius: '2px', border: '1px solid #E7E0D3' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: editingEmail ? '8px' : 0 }}>
+          <div className="mono" style={{ fontSize: '10px', letterSpacing: '0.12em', color: '#78716C', textTransform: 'uppercase' }}>Student login email</div>
+          {!editingEmail && (
+            <button type="button" onClick={() => { setEditingEmail(true); setEmailDraft(student.email || ''); }}
+              className="mono" style={{ background: 'none', border: 'none', color: '#A84E3C', fontSize: '11px', cursor: 'pointer', padding: 0, fontFamily: "'Geist Mono', monospace", letterSpacing: '0.06em' }}>
+              {student.email ? 'edit' : '+ add email'}
+            </button>
+          )}
+        </div>
+        {!editingEmail ? (
+          student.email
+            ? <div className="mono" style={{ fontSize: '13px', color: '#1C1917', marginTop: '4px' }}>{student.email} <span style={{ color: '#6B7B3F', fontSize: '11px' }}>· linked</span></div>
+            : <div className="serif" style={{ fontStyle: 'italic', fontSize: '13px', color: '#A8A29E', marginTop: '4px' }}>No email — student can't log in yet</div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              autoFocus
+              type="email"
+              value={emailDraft}
+              onChange={e => setEmailDraft(e.target.value)}
+              placeholder="student@example.com"
+              style={{ ...inputStyle(), flex: 1, padding: '7px 10px' }}
+              onKeyDown={e => { if (e.key === 'Escape') setEditingEmail(false); }}
+            />
+            <button type="button"
+              onClick={() => { onUpdateEmail(emailDraft.trim().toLowerCase()); setEditingEmail(false); }}
+              className="mono" style={{ background: '#1C1917', color: '#F5F0E8', border: 'none', padding: '8px 12px', borderRadius: '2px', fontSize: '11px', cursor: 'pointer', fontFamily: "'Geist Mono', monospace" }}>
+              save
+            </button>
+            <button type="button" onClick={() => setEditingEmail(false)}
+              style={{ background: 'transparent', border: '1px solid #D6CCB8', padding: '7px 8px', borderRadius: '2px', cursor: 'pointer', color: '#78716C', display: 'flex' }}>
+              <X size={13} strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={labelStyle()}>History</div>
@@ -1155,5 +1221,154 @@ function StudentDetailModal({ student, balance, classes, payments, onClose, onDe
         <SecondaryButton onClick={onClose}>Close</SecondaryButton>
       </div>
     </ModalShell>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// Check-in
+
+function CheckInView({ classes, students, onToggleAttendee, onOpenClass, onAddClass }) {
+  const today = todayIso();
+  const todayClasses = classes
+    .filter(c => c.date === today)
+    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+
+  return (
+    <section>
+      <div style={{ marginBottom: '24px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div className="mono" style={{ fontSize: '11px', letterSpacing: '0.12em', color: '#A84E3C', textTransform: 'uppercase', marginBottom: '6px' }}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </div>
+          <h2 className="serif" style={{ margin: 0, fontSize: '26px', fontWeight: 400, letterSpacing: '-0.01em' }}>
+            Check-in <span className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '16px' }}>· tap your name when you arrive</span>
+          </h2>
+        </div>
+        <PrimaryButton onClick={onAddClass}>
+          <Plus size={15} strokeWidth={1.75} /> Add today's class
+        </PrimaryButton>
+      </div>
+
+      {todayClasses.length === 0 ? (
+        <EmptyState
+          icon={<UserCheck size={22} strokeWidth={1.5} />}
+          title="No classes scheduled today"
+          body="Add a class to start taking attendance."
+          cta="Add class"
+          onClick={onAddClass}
+        />
+      ) : (
+        todayClasses.map(cls => (
+          <CheckInClassCard
+            key={cls.id}
+            cls={cls}
+            students={students}
+            onToggleAttendee={(sid) => onToggleAttendee(cls.id, sid)}
+            onOpenInTeacherView={() => onOpenClass(cls.id)}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+function CheckInClassCard({ cls, students, onToggleAttendee, onOpenInTeacherView }) {
+  const ct = useContext(ClassTypesCtx);
+  const t = getType(ct, cls.type);
+  const sorted = [...students].sort((a, b) => a.name.localeCompare(b.name));
+  const checkedIn = cls.attendeeIds.length;
+
+  return (
+    <div style={{ marginBottom: '28px', background: '#FBF8F3', border: '1px solid #E7E0D3', borderRadius: '3px', overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', background: t.bg, borderBottom: `2px solid ${t.fg}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <div className="serif" style={{ fontSize: '20px', fontWeight: 500, color: t.fg, letterSpacing: '-0.01em' }}>{t.label}</div>
+          <div className="mono" style={{ fontSize: '12px', color: t.fg, opacity: 0.75, marginTop: '2px' }}>
+            {fmtTimeRange(cls.startTime, cls.endTime)}
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="mono" style={{ fontSize: '13px', color: t.fg, opacity: 0.9 }}>
+            {checkedIn} / {students.length} in
+          </div>
+          <button
+            onClick={onOpenInTeacherView}
+            style={{
+              background: 'transparent', border: `1px solid ${t.fg}`, borderRadius: '2px',
+              padding: '6px 12px', cursor: 'pointer', color: t.fg,
+              fontSize: '11px', fontFamily: "'Geist Mono', monospace", letterSpacing: '0.06em',
+              display: 'flex', alignItems: 'center', gap: '5px', textTransform: 'uppercase',
+            }}
+          >
+            <Users size={12} strokeWidth={1.75} /> Teacher view
+          </button>
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <div style={{ padding: '32px', textAlign: 'center' }}>
+          <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '14px' }}>No students on roster — add them in the Students tab.</div>
+        </div>
+      ) : (
+        <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '10px' }}>
+          {sorted.map(s => (
+            <CheckInStudentButton
+              key={s.id}
+              student={s}
+              checked={cls.attendeeIds.includes(s.id)}
+              onToggle={() => onToggleAttendee(s.id)}
+              color={t.fg}
+              colorBg={t.bg}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckInStudentButton({ student, checked, onToggle, color, colorBg }) {
+  const [flash, setFlash] = useState(false);
+
+  const handleTap = () => {
+    if (!checked) { setFlash(true); setTimeout(() => setFlash(false), 900); }
+    onToggle();
+  };
+
+  return (
+    <button
+      onClick={handleTap}
+      style={{
+        minHeight: '80px', padding: '14px 12px', borderRadius: '2px', cursor: 'pointer',
+        fontFamily: 'inherit', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: '5px',
+        transition: 'all 150ms',
+        border: checked ? `2px solid ${color}` : '2px solid #E7E0D3',
+        background: checked ? colorBg : '#FBF8F3',
+        position: 'relative',
+      }}
+    >
+      {checked && (
+        <div style={{ position: 'absolute', top: '7px', right: '7px' }}>
+          <Check size={11} strokeWidth={2.5} style={{ color }} />
+        </div>
+      )}
+      <span className="serif" style={{
+        fontSize: '15px', fontWeight: 500, color: checked ? color : '#1C1917',
+        textAlign: 'center', lineHeight: 1.25, letterSpacing: '-0.01em',
+      }}>
+        {student.name}
+      </span>
+      {flash && (
+        <span className="mono" style={{ fontSize: '9px', color, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.85 }}>
+          checked in!
+        </span>
+      )}
+      {!checked && !flash && (
+        <span className="mono" style={{ fontSize: '9px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          tap to check in
+        </span>
+      )}
+    </button>
   );
 }
