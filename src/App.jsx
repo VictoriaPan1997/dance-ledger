@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useContext } from 'react';
 import { Plus, X, ChevronLeft, ChevronRight, Trash2, Receipt, CalendarDays, Users, Check, Edit3, Settings, UserCheck } from 'lucide-react';
-import { supabase } from './supabase.js';
 
 // ─────────────────────────────────────────────────────────
 // Constants & helpers
@@ -80,7 +79,7 @@ const getType = (ct, type) => ct[type] || Object.values(ct)[0];
 // ─────────────────────────────────────────────────────────
 // Main App
 
-export default function App({ user }) {
+export default function App() {
   const [students, setStudents]     = useState([]);
   const [classes, setClasses]       = useState([]);
   const [payments, setPayments]     = useState([]);
@@ -106,43 +105,16 @@ export default function App({ user }) {
     if (lp)  setPayments(lp);
     if (lct) setClassTypes(lct);
     setLoaded(true);
-
-    supabase
-      .from('ledger_data')
-      .select('students, classes, payments, class_types')
-      .eq('user_id', user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!data) return;
-        const { students: rs, classes: rc, payments: rp, class_types: rct } = data;
-        const ct = rct || DEFAULT_CLASS_TYPES;
-        setStudents(rs);
-        setClasses(rc.map(cls => migrateClass(cls, ct)));
-        setPayments(rp);
-        setClassTypes(ct);
-        localStorage.setItem('students',    JSON.stringify(rs));
-        localStorage.setItem('classes',     JSON.stringify(rc));
-        localStorage.setItem('payments',    JSON.stringify(rp));
-        localStorage.setItem('class_types', JSON.stringify(ct));
-      });
-  }, [user.id]);
+  }, []);
 
   const persist = (key, value) => {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
   };
 
-  const syncRemote = (s, c, p, ct) => {
-    supabase.from('ledger_data').upsert({
-      user_id: user.id,
-      students: s, classes: c, payments: p, class_types: ct,
-      updated_at: new Date().toISOString(),
-    }).then(({ error }) => { if (error) console.error('sync error', error); });
-  };
-
-  const updateStudents   = (next) => { setStudents(next);    persist('students',    next); syncRemote(next, classes, payments, classTypes); };
-  const updateClasses    = (next) => { setClasses(next);     persist('classes',     next); syncRemote(students, next, payments, classTypes); };
-  const updatePayments   = (next) => { setPayments(next);    persist('payments',    next); syncRemote(students, classes, next, classTypes); };
-  const updateClassTypes = (next) => { setClassTypes(next);  persist('class_types', next); syncRemote(students, classes, payments, next); };
+  const updateStudents   = (next) => { setStudents(next);    persist('students',    next); };
+  const updateClasses    = (next) => { setClasses(next);     persist('classes',     next); };
+  const updatePayments   = (next) => { setPayments(next);    persist('payments',    next); };
+  const updateClassTypes = (next) => { setClassTypes(next);  persist('class_types', next); };
 
   const balanceOf = (sid) => {
     const paid = payments.filter(p => p.studentId === sid).reduce((s, p) => s + p.amount, 0);
@@ -332,16 +304,7 @@ export default function App({ user }) {
             <div className="serif" style={{ fontStyle: 'italic', color: '#78716C', fontSize: '13px' }}>
               Balance rolls over automatically — no monthly math required.
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.3</div>
-              <button
-                onClick={() => supabase.auth.signOut()}
-                className="mono"
-                style={{ background: 'none', border: 'none', fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer', padding: 0, fontFamily: "'Geist Mono', monospace" }}
-              >
-                Sign out
-              </button>
-            </div>
+            <div className="mono" style={{ fontSize: '10px', color: '#A8A29E', letterSpacing: '0.08em', textTransform: 'uppercase' }}>v0.3</div>
           </footer>
         </div>
 
